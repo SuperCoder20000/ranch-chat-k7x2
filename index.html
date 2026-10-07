@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ranch Chat</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+  <nav class="servers">
+    <div class="server active" title="Ranch Chat">RC</div>
+    <div class="server-sep"></div>
+    <div class="server add">+</div>
+  </nav>
+
+  <aside class="channels">
+    <header class="server-name"><span>Ranch Chat</span>
+      <svg width="16" height="16" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </header>
+    <div class="channel-scroll">
+      <div class="cat">TEXT CHANNELS</div>
+      <ul id="channelList"></ul>
+    </div>
+    <div class="userbar" id="userbar"></div>
+  </aside>
+
+  <main class="chat">
+    <header class="chat-header" id="chatHeader"></header>
+    <div class="messages" id="messages"></div>
+    <footer class="composer">
+      <div class="input">
+        <span class="plus">+</span>
+        <span class="placeholder" id="placeholder"></span>
+        <span class="input-icons">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M12 8c-3 0-5-1-5-3s3-2 5 3c2-5 5-5 5-3s-2 3-5 3z"/></svg>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2.5 4 2.5S16 14 16 14M9 9.5h.01M15 9.5h.01" stroke-linecap="round"/></svg>
+        </span>
+      </div>
+      <div class="typing" id="typing"></div>
+    </footer>
+    <div class="toasts" id="toasts"></div>
+  </main>
+
+  <aside class="members" id="members"></aside>
+</div>
+
+<!-- ============ PRESENTER CONTROLS (hidden in presentation mode) ============ -->
+<section class="panel" id="panel">
+  <div class="p-head">
+    <strong>Presenter controls</strong>
+    <span class="p-prog" id="pProg"></span>
+    <button class="p-ghost" id="pDock" title="Move panel to the other side">&#8646;</button>
+  </div>
+
+  <div class="p-row">
+    <label>Sender
+      <select id="fChar"></select>
+    </label>
+    <label>Channel
+      <select id="fChan"></select>
+    </label>
+  </div>
+  <div class="p-row">
+    <label>Type
+      <select id="fType">
+        <option value="message">Message</option>
+        <option value="join">&ldquo;Joined the server&rdquo;</option>
+        <option value="system">System notice (no character)</option>
+        <option value="slide">Title slide (1st line = title)</option>
+      </select>
+    </label>
+    <label>Timestamp
+      <input id="fTime" type="text" placeholder="8:14 PM">
+    </label>
+  </div>
+  <label class="p-full">Message text (editable before sending)
+    <textarea id="fText" rows="3" placeholder="Type or edit the next message..."></textarea>
+  </label>
+
+  <div class="p-btns">
+    <button id="bBack" title="Left arrow / Page Up">&#9664; Back</button>
+    <button id="bNext" class="primary" title="Right arrow / Space / Page Down">Add message &#9654;</button>
+  </div>
+  <div class="p-btns">
+    <button id="bAuto">&#9654;&#9654; Auto-play</button>
+    <button id="bReset" class="danger">Reset</button>
+  </div>
+
+  <details open>
+    <summary>Effects &amp; options</summary>
+    <label class="chk"><input type="checkbox" id="xTyping" checked> &ldquo;typing...&rdquo; indicator</label>
+    <label class="chk"><input type="checkbox" id="xAnim" checked> Message animation</label>
+    <label class="chk"><input type="checkbox" id="xToast" checked> Join notification pop-up</label>
+    <label class="chk"><input type="checkbox" id="xFollow" checked> Switch to the message's channel</label>
+    <label class="chk"><input type="checkbox" id="xScroll" checked> Auto-scroll to newest</label>
+    <label class="p-range">Typing time <span id="vTyping"></span>
+      <input type="range" id="xTypingMs" min="300" max="4000" step="100">
+    </label>
+    <label class="p-range">Auto-play pause <span id="vAuto"></span>
+      <input type="range" id="xAutoSec" min="0.5" max="8" step="0.5">
+    </label>
+    <label class="p-range">Text size <span id="vSize"></span>
+      <input type="range" id="xSize" min="13" max="28" step="1" value="16">
+    </label>
+  </details>
+
+  <div class="p-sync"><span id="syncStatus">Sync: off</span><button id="bSync">Sync password&hellip;</button></div>
+
+  <div class="p-foot">
+    <button id="bHide" class="primary">Hide controls (H)</button>
+    <button id="bExport">Export script&hellip;</button>
+    <button id="bShow">Start slideshow mode (S)</button>
+    <small>Progress &amp; settings auto-save in this browser. Press <kbd>H</kbd> to bring them back. <b>Right-click</b> the chat to add, edit or delete any message. Script: <code>conversation.js</code>.</small>
+  </div>
+</section>
+
+<div class="slide" id="slide"></div>
+<div id="progress"></div>
+<button id="exitShow" type="button">&#10005; Exit slideshow</button>
+<div class="ctx" id="ctx"></div>
+
+<dialog id="editor">
+  <form method="dialog" id="eForm">
+    <h3 id="eTitle">Message</h3>
+    <div class="e-row">
+      <label>Sender<select id="eChar"></select></label>
+      <label>Channel<select id="eChan"></select></label>
+    </div>
+    <div class="e-row">
+      <label>Type<select id="eType"><option value="message">Message</option><option value="join">&ldquo;Joined the server&rdquo;</option><option value="system">System notice</option></select></label>
+      <label>Timestamp<input id="eTime" type="text" placeholder="8:14 PM"></label>
+    </div>
+    <label>Text<textarea id="eText" rows="4"></textarea></label>
+    <div class="e-btns">
+      <small>Ctrl+Enter to save</small>
+      <button type="button" id="eCancel">Cancel</button>
+      <button type="submit" id="eSave" class="primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="exporter" class="dlg">
+  <h3>Export script</h3>
+  <p class="x-note">Your on-screen messages (including right-click edits) plus anything not yet sent. Paste over <code>SCRIPT</code> in <code>conversation.js</code>, or download a complete replacement file.</p>
+  <textarea id="xText" readonly spellcheck="false"></textarea>
+  <div class="e-btns">
+    <button type="button" id="xClose">Close</button>
+    <button type="button" id="xCopy">Copy SCRIPT</button>
+    <button type="button" id="xDownload" class="primary">Download conversation.js</button>
+  </div>
+</dialog>
+
+<script src="conversation.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

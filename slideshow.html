@@ -1,0 +1,10 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<title>Ranch Chat slideshow</title>
+<script>
+  // keeps ?key=PASSWORD so the projector device can join sync from this one link
+  var q = location.search ? "&" + location.search.slice(1) : "";
+  location.replace("index.html?slideshow" + q);
+</script>
+<a href="index.html?slideshow">Open slideshow</a>
