@@ -313,6 +313,17 @@
     loadForm(m);
   }
 
+  // normal view shows the whole conversation; slideshow / auto-play reveal it one message at a time
+  const fillAll = () => { uid = 0; shown = SCRIPT.filter(m => m.type !== "slide").map(m => ({ ...m, uid: ++uid, fromScript: true })); cursor = SCRIPT.length; };
+  function revealAll() {
+    run++; busy = false; auto = false; typing = null; unread.clear();
+    $("#toasts").innerHTML = "";
+    fillAll();
+    switchChannel(CHANNELS[0].id);
+    renderMembers(); renderTyping();
+    loadForm();
+  }
+
   function reset() {
     run++; busy = false; auto = false; typing = null;
     shown = []; cursor = 0; unread.clear();
@@ -324,6 +335,7 @@
 
   async function toggleAuto() {
     if (auto) { auto = false; updateControls(); return; }
+    if (cursor >= SCRIPT.length) reset();   // everything is already showing: start over and reveal it progressively
     auto = true; updateControls();
     const token = run;
     while (auto && token === run && cursor < SCRIPT.length) {
@@ -346,7 +358,8 @@
       // drop ?slideshow so a refresh doesn't put you straight back in
       const p = new URLSearchParams(location.search); p.delete("slideshow");
       try { history.replaceState(null, "", location.pathname + (p.toString() ? "?" + p : "") + location.hash); } catch (err) { /* ignore */ }
-    } else b.add("show", "present");
+    } else { b.add("show", "present"); reset(); }
+    if (!b.contains("show")) revealAll();
     updateControls();
   };
 
@@ -480,6 +493,7 @@
   $("#bNext").onclick = addNext;
   $("#bBack").onclick = back;
   $("#bAuto").onclick = toggleAuto;
+  $("#bShowAll").onclick = revealAll;
   $("#bReset").onclick = () => { if (confirm("Reset the conversation back to the start?")) reset(); };
   $("#bHide").onclick = togglePanel;
   $("#bShow").onclick = toggleShow;
@@ -693,7 +707,10 @@
 
   load();
   syncLabels();
-  if (/slideshow/.test(location.search)) document.body.classList.add("show", "present");
+  if (/slideshow/.test(location.search)) {
+    document.body.classList.add("show", "present");
+    if (cursor >= SCRIPT.length) { shown = []; cursor = 0; }   // a finished run starts over
+  } else if (!(shown.length && cursor >= SCRIPT.length)) fillAll();
   renderChannels(); renderHeader(); renderMessages(null, true); renderMembers(); renderUserbar(); renderTyping();
   loadForm();
   initSync();
