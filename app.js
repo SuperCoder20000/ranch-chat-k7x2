@@ -112,7 +112,7 @@
 
   function bcast() {
     if (!HOST) return;
-    const m = JSON.stringify({ n: cursor, ch: current, z: fx.size.value, ty: typing ? { c: typing.character, ch: typing.channel } : null });
+    const m = JSON.stringify({ n: cursor, ch: current, z: fx.size.value, rec: recOn, ty: typing ? { c: typing.character, ch: typing.channel } : null });
     if (m === lastSent) return;
     lastSent = outbox = m;
     flushOut();
@@ -126,6 +126,115 @@
       catch (err) { if (!outbox) outbox = m; await sleep(5000); }
     }
     sending = false;
+  }
+
+  /* ---------------- audio: every device's mic is mixed into one file on the presenter ---------------- */
+  // viewers tap "Join audio recording" (browsers require that permission); their mic streams peer-to-peer
+  // (PeerJS handles the connection set-up) to the presenter, who records the mix while the slideshow runs.
+  const PEER_SRC = "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js";
+  const HOST_PEER = "rhchat-" + ROOM + "-host";
+  const MIME = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+  const baseTitle = document.title;
+  let peerLib = null, actx = null, mixDest = null, mixIn = null, recorder = null, recOn = false, recDone = false, chunks = [], audioReady = false, hostRec = false;
+  const seenStreams = new Set();
+  const loadPeer = () => peerLib || (peerLib = new Promise((res, rej) => {
+    if (window.Peer) return res(window.Peer);
+    const s = document.createElement("script");
+    s.src = PEER_SRC; s.onload = () => res(window.Peer); s.onerror = () => rej(new Error("could not load PeerJS"));
+    document.head.appendChild(s);
+  }));
+
+  function addSource(stream) {
+    if (seenStreams.has(stream.id)) return;
+    seenStreams.add(stream.id);
+    const a = new Audio(); a.srcObject = stream; a.muted = true; a.play().catch(() => {});   // Chrome only feeds WebAudio from streams that are attached to an element
+    actx.createMediaStreamSource(stream).connect(mixIn);
+  }
+
+  async function startAudioHost() {
+    if (!HOST || audioReady || /[?&]noaudio/.test(location.search)) return;
+    audioReady = true;
+    try {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      mixDest = actx.createMediaStreamDestination();
+      mixIn = actx.createDynamicsCompressor();   // keeps several mics from clipping when summed
+      mixIn.connect(mixDest);
+      ["keydown", "pointerdown"].forEach(ev => document.addEventListener(ev, () => { if (actx.state === "suspended") actx.resume(); }, true));
+      try { addSource(await navigator.mediaDevices.getUserMedia({ audio: true })); }
+      catch (err) { console.warn("presenter mic unavailable:", err); }
+      const Peer = await loadPeer();
+      const peer = new Peer(HOST_PEER);
+      peer.on("call", call => { call.answer(); call.on("stream", addSource); });
+      peer.on("error", err => console.warn("audio relay:", err.type || err));
+    } catch (err) { console.warn("audio setup failed:", err); audioReady = false; }
+  }
+
+  function startRec() {
+    if (recOn || !mixDest) return;
+    chunks = [];
+    recorder = new MediaRecorder(mixDest.stream, MIME ? { mimeType: MIME } : undefined);
+    recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = saveRec;
+    recorder.start(1000);
+    recOn = true; recDone = false;
+    document.title = "● REC " + baseTitle;
+    bcast();
+  }
+  function stopRec() {
+    if (!recOn) return;
+    recOn = false; recDone = true;
+    recorder.stop();
+    document.title = baseTitle;
+    bcast();
+  }
+  function saveRec() {
+    const type = recorder.mimeType || MIME || "audio/webm";
+    const ext = /mp4/.test(type) ? "m4a" : /ogg/.test(type) ? "ogg" : "webm";
+    const url = URL.createObjectURL(new Blob(chunks, { type }));
+    const d = new Date(), p = n => String(n).padStart(2, "0");
+    const link = Object.assign(document.createElement("a"), { href: url, download: `ranch-chat-audio-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${ext}` });
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  // recording follows the slideshow: starts on the first step, stops on Esc / exit, R, or one more press after the end
+  function recSync() {
+    if (!HOST || !audioReady) return;
+    if (cursor === 0) recDone = false;
+    if (!recOn && !recDone && isShow() && cursor > 0) startRec();
+  }
+  window.addEventListener("beforeunload", ev => { if (recOn) { ev.preventDefault(); ev.returnValue = ""; } });
+
+  // viewer side
+  let vStream = null, vPeer = null, vJoined = false, vTimer = null;
+  function joinLabel() {
+    const b = $("#joinRec"); if (!b) return;
+    b.className = vJoined ? (hostRec ? "rec" : "on") : "";
+    b.textContent = !vJoined ? "🎤 Join audio recording" : hostRec ? "● Recording – your mic is on (tap to leave)" : "Mic on – waiting for the presenter (tap to leave)";
+  }
+  async function toggleJoin() {
+    if (vJoined) {
+      vJoined = false; clearInterval(vTimer);
+      if (vStream) vStream.getTracks().forEach(t => t.stop());
+      if (vPeer) vPeer.destroy();
+      vStream = vPeer = null; return joinLabel();
+    }
+    try { vStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+    catch (err) { $("#joinRec").textContent = "Microphone blocked – allow it and tap again"; return; }
+    vJoined = true; joinLabel();
+    const Peer = await loadPeer();
+    vPeer = new Peer();
+    vPeer.on("error", () => {});
+    let call = null;
+    const dial = () => {   // keep trying until the presenter answers (they may open their page later or reload it)
+      if (!vJoined || (call && call.open)) return;
+      try { if (call) call.close(); call = vPeer.call(HOST_PEER, vStream); } catch (err) { /* retry */ }
+    };
+    vPeer.on("open", () => { dial(); vTimer = setInterval(dial, 5000); });
+  }
+  if (WATCH) {
+    const b = document.createElement("button");
+    b.id = "joinRec"; b.type = "button"; b.onclick = toggleJoin;
+    document.body.appendChild(b); joinLabel();
   }
 
   let lastApplied = "";
@@ -142,6 +251,7 @@
     if (d.z && +d.z >= 12 && +d.z <= 40) { fx.size.value = d.z; syncLabels(); }
     const newest = shown[n - 1];
     const anim = prev > 0 && n === prev + 1 && newest && fx.anim.checked ? newest.uid : null;
+    hostRec = !!d.rec; joinLabel();
     renderChannels(); renderHeader(); renderMessages(anim, !anim); renderMembers(); renderTyping(); updateControls();
     if (anim && newest.type === "join" && fx.toast.checked) toast(newest.character);
   }
@@ -313,7 +423,7 @@
 
   async function addNext() {
     if (busy) { if (skip) skip(); return; }
-    if (isShow() && cursor >= SCRIPT.length) return;
+    if (isShow() && cursor >= SCRIPT.length) { stopRec(); return; }   // one more press after the end finishes the recording
     const type = f.type.value;
     const text = f.text.value.trim();
     let msg;
@@ -404,6 +514,7 @@
     const b = document.body.classList;
     if (b.contains("show")) {
       b.remove("show", "present", "hint");
+      stopRec();
       // drop ?slideshow so a refresh doesn't put you straight back in
       const p = new URLSearchParams(location.search); p.delete("slideshow");
       try { history.replaceState(null, "", location.pathname + (p.toString() ? "?" + p : "") + location.hash); } catch (err) { /* ignore */ }
@@ -566,6 +677,7 @@
     if (k === "h" || k === "H") togglePanel();
     else if (k === "s" || k === "S" || (k === "Escape" && isShow())) toggleShow();
     else if (k === "a" || k === "A") toggleAuto();
+    else if ((k === "r" || k === "R") && HOST) { if (recOn) stopRec(); else startAudioHost().then(startRec); }
     else if (k === "f" || k === "F") { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); }
     else if (k === "ArrowLeft" || k === "PageUp") { e.preventDefault(); back(); }
     else if (k === "ArrowRight" || k === "PageDown") { e.preventDefault(); addNext(); }
@@ -581,6 +693,7 @@
 
   function save() {
     if (WATCH) return;
+    recSync();
     bcast();
     try {
       const s = { sig, shown, cursor, uid, current, left: $("#panel").classList.contains("left"), checks: {}, ranges: {} };
@@ -766,5 +879,5 @@
   } else if (!(shown.length && cursor >= SCRIPT.length)) fillAll();
   renderChannels(); renderHeader(); renderMessages(null, true); renderMembers(); renderUserbar(); renderTyping();
   loadForm();
-  if (WATCH) watchRoom(); else { initSync(); bcast(); }
+  if (WATCH) watchRoom(); else { initSync(); bcast(); if (isShow()) startAudioHost(); }
 })();

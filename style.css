@@ -230,3 +230,10 @@ body.clean, body.clean * { cursor: none !important; }
 body.clean #exitShow { display: none !important; }
 
 body.watch { pointer-events: none; user-select: none; }
+
+#joinRec { position: fixed; left: 16px; bottom: 16px; z-index: 70; pointer-events: auto; padding: 10px 14px; border: 1px solid #ffffff40; border-radius: 10px; background: #101114f2; color: #fff; font: 600 14px system-ui, sans-serif; cursor: pointer; }
+#joinRec.on { border-color: #f0b232; }
+#joinRec.rec { border-color: #f23f43; background: #3a1214f2; }
+body.watch #joinRec { cursor: pointer; }
+body.clean.watch, body.clean.watch * { cursor: none !important; }
+body.clean.watch #joinRec { cursor: pointer !important; }
