@@ -228,3 +228,5 @@ body.show.hint #exitShow { opacity: 1; pointer-events: auto; }
 
 body.clean, body.clean * { cursor: none !important; }
 body.clean #exitShow { display: none !important; }
+
+body.watch { pointer-events: none; user-select: none; }

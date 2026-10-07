@@ -101,6 +101,55 @@
   };
   const f = { char: $("#fChar"), chan: $("#fChan"), type: $("#fType"), time: $("#fTime"), text: $("#fText") };
 
+  /* ---------------- live room: viewers follow the presenter (relay: ntfy.sh) ---------------- */
+  // presenter: page?room=NAME   viewers: page?room=NAME&watch
+  const roomQ = new URLSearchParams(location.search);
+  const ROOM = (roomQ.get("room") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
+  const WATCH = !!ROOM && roomQ.has("watch");
+  const HOST = !!ROOM && !WATCH;
+  const ROOM_URL = "https://ntfy.sh/ranchhands-" + ROOM;
+  let lastSent = "", outbox = null, sending = false;
+
+  function bcast() {
+    if (!HOST) return;
+    const m = JSON.stringify({ n: cursor, ch: current, z: fx.size.value, ty: typing ? { c: typing.character, ch: typing.channel } : null });
+    if (m === lastSent) return;
+    lastSent = outbox = m;
+    flushOut();
+  }
+  async function flushOut() {
+    if (sending) return;
+    sending = true;
+    while (outbox) {   // only the newest state matters; retry if the relay is busy
+      const m = outbox; outbox = null;
+      try { const r = await fetch(ROOM_URL, { method: "POST", body: m }); if (!r.ok) throw new Error(r.status); }
+      catch (err) { if (!outbox) outbox = m; await sleep(5000); }
+    }
+    sending = false;
+  }
+
+  let lastApplied = "";
+  function applyRoom(d) {
+    const key = JSON.stringify(d);
+    if (key === lastApplied) return;
+    lastApplied = key;
+    const n = Math.max(0, Math.min(+d.n || 0, SCRIPT.length)), prev = cursor;
+    shown = SCRIPT.slice(0, n).map((m, i) => ({ ...m, uid: i + 1, fromScript: true }));
+    cursor = n; uid = n;
+    if (CHANNELS.some(c => c.id === d.ch)) current = d.ch;
+    unread.clear();
+    typing = d.ty && CHANNELS.some(c => c.id === d.ty.ch) && CHARACTERS[d.ty.c] ? { character: d.ty.c, channel: d.ty.ch } : null;
+    if (d.z && +d.z >= 12 && +d.z <= 40) { fx.size.value = d.z; syncLabels(); }
+    const newest = shown[n - 1];
+    const anim = prev > 0 && n === prev + 1 && newest && fx.anim.checked ? newest.uid : null;
+    renderChannels(); renderHeader(); renderMessages(anim, !anim); renderMembers(); renderTyping(); updateControls();
+    if (anim && newest.type === "join" && fx.toast.checked) toast(newest.character);
+  }
+  function watchRoom() {
+    const es = new EventSource(ROOM_URL + "/sse?since=latest");   // auto-reconnects by itself
+    es.onmessage = ev => { try { const m = JSON.parse(ev.data); if (m.event === "message") applyRoom(JSON.parse(m.message)); } catch (err) { /* ignore */ } };
+  }
+
   /* ---------------- text formatting ---------------- */
   const mentionRe = new RegExp("@(" + Object.keys(CHARACTERS).join("|") + ")\\b", "g");
   const fmt = t => esc(t)
@@ -241,7 +290,7 @@
       on = true;
       html = `<div class="s-title">${esc(last.title)}</div>${last.subtitle ? `<div class="s-sub">${esc(last.subtitle)}</div>` : ""}`;
     } else if (isShow() && !shown.length) {
-      on = true; html = '<div class="s-hint">Click or press &rarr; to begin</div>';
+      on = true; html = `<div class="s-hint">${WATCH ? "Waiting for the presenter&hellip;" : "Click or press &rarr; to begin"}</div>`;
     }
     if (on && (!el.classList.contains("on") || el.dataset.key !== html)) { el.innerHTML = html; el.dataset.key = html; }
     el.classList.toggle("on", on);
@@ -282,7 +331,7 @@
     if (type !== "slide" && fx.follow.checked && msg.channel !== current) switchChannel(msg.channel);
     if (type === "message" && fx.typing.checked) {
       typing = { character: msg.character, channel: msg.channel };
-      renderTyping();
+      renderTyping(); bcast();
       await Promise.race([sleep(+fx.typingMs.value), new Promise(r => { skip = r; })]);
       skip = null;
       if (token !== run) return;
@@ -512,7 +561,7 @@
 
   document.addEventListener("keydown", e => {
     const tag = e.target.tagName;
-    if (document.querySelector("dialog[open]") || ["INPUT", "TEXTAREA", "SELECT"].includes(tag) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (WATCH || document.querySelector("dialog[open]") || ["INPUT", "TEXTAREA", "SELECT"].includes(tag) || e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key;
     if (k === "h" || k === "H") togglePanel();
     else if (k === "s" || k === "S" || (k === "Escape" && isShow())) toggleShow();
@@ -531,6 +580,8 @@
   const RANGES = { typingMs: fx.typingMs, autoSec: fx.autoSec, size: fx.size };
 
   function save() {
+    if (WATCH) return;
+    bcast();
     try {
       const s = { sig, shown, cursor, uid, current, left: $("#panel").classList.contains("left"), checks: {}, ranges: {} };
       Object.entries(SETTINGS).forEach(([k, el]) => s.checks[k] = el.checked);
@@ -705,14 +756,15 @@
     addNext();
   });
 
-  load();
+  if (!WATCH) load();
   syncLabels();
-  if (/slideshow/.test(location.search)) {
+  if (WATCH) document.body.classList.add("watch");
+  if (WATCH || /slideshow/.test(location.search)) {
     document.body.classList.add("show", "present");
-    if (/[?&](clean|record)/.test(location.search)) document.body.classList.add("clean");   // recording: no cursor, no exit button
+    if (WATCH || /[?&](clean|record)/.test(location.search)) document.body.classList.add("clean");   // recording: no cursor, no exit button
     if (cursor >= SCRIPT.length) { shown = []; cursor = 0; }   // a finished run starts over
   } else if (!(shown.length && cursor >= SCRIPT.length)) fillAll();
   renderChannels(); renderHeader(); renderMessages(null, true); renderMembers(); renderUserbar(); renderTyping();
   loadForm();
-  initSync();
+  if (WATCH) watchRoom(); else { initSync(); bcast(); }
 })();
