@@ -47,6 +47,7 @@ const USERNAMES = {
 //   { type: "system", text: "..." } shows a grey notice with no character.
 // ---------------------------------------------------------------------
 const SCRIPT = [
+  { type: "slide", title: "Ranch Hands", subtitle: "Of Mice and Men, as a group chat" },
   { type: "system", text: "Welcome to Ranch Hands, a chat room for ranch workers and ranch owners to talk about life and work.", timestamp: "8:14 PM", channel: "general", date: "June 3, 1937" },
   { type: "system", text: "2 new members joined the chat.", timestamp: "8:14 PM", channel: "general" },
   { character: "George", text: "Hey, I'm new here. Just got to a ranch and I'm looking for work.", timestamp: "8:15 PM", channel: "general" },
@@ -147,5 +148,6 @@ const SCRIPT = [
   { type: "system", text: "6 members have left the chat.", timestamp: "9:02 PM", channel: "general" },
   { type: "system", text: "Everyone came to the chat looking for something different.", timestamp: "9:03 PM", channel: "general" },
   { type: "system", text: "But for a little while, they found people who understood.", timestamp: "9:03 PM", channel: "general" },
-  { type: "system", text: "Chat ended.", timestamp: "9:04 PM", channel: "general" }
+  { type: "system", text: "Chat ended.", timestamp: "9:04 PM", channel: "general" },
+  { type: "slide", title: "Thanks for watching", subtitle: "" }
 ];

@@ -709,6 +709,7 @@
   syncLabels();
   if (/slideshow/.test(location.search)) {
     document.body.classList.add("show", "present");
+    if (/[?&](clean|record)/.test(location.search)) document.body.classList.add("clean");   // recording: no cursor, no exit button
     if (cursor >= SCRIPT.length) { shown = []; cursor = 0; }   // a finished run starts over
   } else if (!(shown.length && cursor >= SCRIPT.length)) fillAll();
   renderChannels(); renderHeader(); renderMessages(null, true); renderMembers(); renderUserbar(); renderTyping();

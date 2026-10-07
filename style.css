@@ -225,3 +225,6 @@ body.show.hint #exitShow { opacity: 1; pointer-events: auto; }
 .msg.system { margin-top: .7rem; align-items: center; }
 .msg.system .gutter { display: flex; justify-content: center; padding-right: .5rem; color: var(--muted); }
 .msg.system .body { font-size: 1.05rem; color: var(--muted); font-style: italic; }
+
+body.clean, body.clean * { cursor: none !important; }
+body.clean #exitShow { display: none !important; }
